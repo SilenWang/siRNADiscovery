@@ -11,38 +11,7 @@
 pixi install
 ```
 
-### 关键依赖
-- Python 3.10, TensorFlow 2.14.0, stellargraph 1.2.1
-- CUDA 11.8 (cudatoolkit), cuDNN 8.9.7
-
-## GPU 配置
-
-本机显卡: NVIDIA GeForce RTX 3060 (12GB)
-
-### ptxas
-系统缺少 `ptxas`，需要从完整 CUDA Toolkit 安装或拷贝：
-
-```bash
-# ptxas 放入 pixi 环境 bin 目录
-cp /path/to/ptxas .pixi/envs/default/bin/
-chmod +x .pixi/envs/default/bin/ptxas
-
-# libdevice.10.bc 软链接（供 XLA 编译使用）
-mkdir -p .pixi/envs/default/nvvm/libdevice
-ln -sf .pixi/envs/default/lib/libdevice.10.bc \
-       .pixi/envs/default/nvvm/libdevice/libdevice.10.bc
-```
-
-### 设置环境变量并训练
-
-```bash
-CONDA_ENV_LIB="$(pwd)/.pixi/envs/default/lib"
-CONDA_PREFIX="$(pwd)/.pixi/envs/default"
-LD_LIBRARY_PATH="$CONDA_ENV_LIB:/usr/lib/x86_64-linux-gnu/:/usr/local/cuda/lib64" \
-XLA_FLAGS="--xla_gpu_cuda_data_dir=$CONDA_PREFIX" \
-PATH="$CONDA_PREFIX/bin:$PATH" \
-pixi run python siRNADiscovery.py
-```
+- 修正 Agent 给的结果，直接使用12版本，避免处理依赖问题
 
 ## siRNA-split 实验结果（10折交叉验证, GPU）
 

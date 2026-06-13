@@ -32,5 +32,5 @@ stellargraph = "*"
 chardet = "*"
 
 [target.osx-arm64.pypi-dependencies]
-tensorflow = ">=2.14,<2.19"
+tensorflow = ">=2.15.0,<2.16"
 tensorflow-metal = "*"

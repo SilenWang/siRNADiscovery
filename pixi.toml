@@ -17,13 +17,20 @@ pandas = "*"
 numpy = "*"
 scikit-learn = "*"
 scipy = "*"
-tensorflow = { version = "2.15.*", channel = "conda-forge" }
 biopython = ">=1.81"
 matplotlib = ">=3.7"
 
 [target.linux-64.dependencies]
+tensorflow = { version = "2.15.*", channel = "conda-forge" }
 cudnn = "*"
+
+[target.osx-arm64.dependencies]
+pip = "*"
 
 [pypi-dependencies]
 stellargraph = "*"
 chardet = "*"
+
+[target.osx-arm64.pypi-dependencies]
+tensorflow = ">=2.14,<2.19"
+tensorflow-metal = "*"

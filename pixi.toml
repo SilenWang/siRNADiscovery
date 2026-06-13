@@ -1,11 +1,8 @@
 [workspace]
 channels = ["conda-forge"]
 name = "siRNADiscovery_env"
-platforms = ["linux-64"]
+platforms = ["osx-arm64"]
 version = "0.1.1"
-
-[system-requirements]
-cuda = "12"
 
 [tasks]
 train-siRNA = { cmd = "python siRNADiscovery.py", cwd = "siRNA_split/" }
@@ -18,7 +15,6 @@ numpy = "*"
 scikit-learn = "*"
 scipy = "*"
 tensorflow = { version = "2.15.*", channel = "conda-forge" }
-cudnn = "*"
 
 biopython = ">=1.81"
 matplotlib = ">=3.7"

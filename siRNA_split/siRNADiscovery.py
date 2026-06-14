@@ -205,7 +205,7 @@ for n in range(10):
 
     model = Model(inputs=x_inp, outputs=prediction)
     model.compile(
-        optimizer=optimizers.Adam(lr = params["lr"]),
+        optimizer=optimizers.Adam(learning_rate=params["lr"]),
         loss = params["loss"]
     )
 

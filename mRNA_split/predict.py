@@ -140,9 +140,9 @@ def build_prediction_graph(records: list) -> StellarGraph.StellarGraph:
         edges.append((iid, sid))
         edges.append((iid, mid))
 
-    sirna_df = pd.DataFrame({k: v[1] for k, v in sirna_map.items()}).T
+    sirna_df = pd.DataFrame({v[0]: v[1] for v in sirna_map.values()}).T
     sirna_df.index.name = "siRNA"
-    mrna_df = pd.DataFrame({k: v[1] for k, v in mrna_map.items()}).T
+    mrna_df = pd.DataFrame({v[0]: v[1] for v in mrna_map.values()}).T
     mrna_df.index.name = "mRNA"
     interaction_df = pd.DataFrame(
         {iid: feat for iid, feat in interaction_rows}).T

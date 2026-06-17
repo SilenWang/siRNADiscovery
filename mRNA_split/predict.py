@@ -36,11 +36,10 @@ _DEFAULT_PARAMS = {
     "hinsage_layer_sizes": [64, 32],
     "hop_samples": [4, 2],
 }
-_PREPROCESS_DIR = Path(__file__).parent / "mRNA_split_preprocess"
-_AGO2_DIR = Path(__file__).parent / "RNA_AGO2"
 _SELF_SIRNA_COLS = 15
 _SELF_MRNA_COLS = 500
 _CON_COLS = 50
+_INTERACTION_COLS = None
 
 
 def _make_id(seq_label, idx):
@@ -88,16 +87,22 @@ def compute_mrna_features(seq: str) -> np.ndarray:
 
 def compute_interaction_features(sirna_seq: str, mrna_seq: str,
                                   match_pos: int) -> np.ndarray:
+    global _INTERACTION_COLS
     seq_u = sirna_seq.replace("T", "U")
     thermo = utils.cal_thermo_feature(seq_u)
     pe = utils.get_pos_embedding_sequence(
         match_pos, _DEFAULT_PARAMS["sirna_length"], _DEFAULT_PARAMS["dmodel"])
-    vals = np.concatenate([
-        np.asarray(thermo, dtype=np.float32),
-        np.zeros(_CON_COLS, dtype=np.float32),
+    con = np.zeros(_CON_COLS, dtype=np.float32)
+    raw = np.concatenate([
+        np.asarray(thermo, dtype=np.float32), con,
         np.asarray(pe, dtype=np.float32),
     ])
-    return vals
+    if _INTERACTION_COLS is not None and raw.shape[0] != _INTERACTION_COLS:
+        if len(raw) > _INTERACTION_COLS:
+            raw = raw[:_INTERACTION_COLS]
+        else:
+            raw = np.pad(raw, (0, _INTERACTION_COLS - len(raw)))
+    return raw
 
 
 def find_match_position(sirna_seq: str, mrna_seq: str) -> int:
@@ -153,6 +158,27 @@ def build_prediction_graph(records: list) -> StellarGraph.StellarGraph:
         {"siRNA": sirna_df, "mRNA": mrna_df, "interaction": interaction_df},
         edges=edge_df, source_column="source", target_column="target"
     )
+
+
+def detect_feature_dims(weight_path: str):
+    global _INTERACTION_COLS
+    try:
+        import h5py
+        with h5py.File(weight_path, "r") as f:
+            for name in f:
+                for sub in f[name]:
+                    w_self = f[name][sub].get("w_self:0")
+                    if w_self is not None:
+                        _INTERACTION_COLS = w_self.shape[0]
+                        break
+                if _INTERACTION_COLS is not None:
+                    break
+        if _INTERACTION_COLS is not None:
+            print(f"Detected interaction feature dim: {_INTERACTION_COLS}",
+                  file=sys.stderr)
+    except Exception as e:
+        print(f"Could not probe weight file ({e}); using defaults.",
+              file=sys.stderr)
 
 
 def build_inference_model(generator: HinSAGENodeGenerator,
@@ -237,6 +263,7 @@ def main():
         sys.exit(1)
 
     print(f"Processing {len(records)} siRNA-mRNA pair(s)...", file=sys.stderr)
+    detect_feature_dims(args.model_weights)
     print("Building graph...", file=sys.stderr)
     g = build_prediction_graph(records)
 

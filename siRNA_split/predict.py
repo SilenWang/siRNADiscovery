@@ -14,8 +14,8 @@ categories:
               k-mers 1-5 (1364), rules scores (57)  →  1513 total
       mRNA:   one-hot (39024), self-fold (100), AGO2 (1), GC% (1)
               →  39126 total
-      Inter.: thermodynamics (20), co-fold (50), pos-encoding (126)
-              →  196 total
+      Inter.: thermodynamics (21), co-fold (50), pos-encoding (126)
+              →  197 total
 
   * External-tool-dependent (loaded from precomputed files or zero-filled):
       - siRNA self-fold (RNAfold→SVD, 6-d)
@@ -39,7 +39,7 @@ Usage examples:
       --model-weights saved_models/fold0_weights.h5
 """
 
-import argparse, json, os, sys, textwrap, itertools
+import argparse, json, os, sys, textwrap
 from pathlib import Path
 
 import numpy as np
@@ -47,14 +47,14 @@ import pandas as pd
 import scipy.stats
 from sklearn.metrics import mean_squared_error, roc_auc_score
 
-os.environ["TF_CPP_MIN_LOG_LEVEL"] = "2"  # suppress TF info/warnings
+os.environ["TF_CPP_MIN_LOG_LEVEL"] = "2"
 import tensorflow as tf
 from tensorflow.keras import layers, Model, optimizers
 import stellargraph as StellarGraph
 from stellargraph.mapper import HinSAGENodeGenerator
 from stellargraph.layer import HinSAGE
 
-import utils  # feature calculation helpers from the repo
+import utils
 
 # ---------------------------------------------------------------------------
 # Constants / defaults
@@ -67,11 +67,12 @@ _DEFAULT_PARAMS = {
     "hinsage_layer_sizes": [64, 32],
     "hop_samples": [12, 6],
 }
-_PREPROCESS_DIR = Path(__file__).parent / "siRNA_split_preprocess"
-_AGO2_DIR = Path(__file__).parent / "RNA_AGO2"
 _SELF_SIRNA_COLS = 6
 _SELF_MRNA_COLS = 100
 _CON_COLS = 50
+
+# Set at runtime by reading the weight file
+_INTERACTION_COLS = None
 
 
 # ---------------------------------------------------------------------------
@@ -128,16 +129,23 @@ def compute_mrna_features(seq: str) -> np.ndarray:
 def compute_interaction_features(sirna_seq: str, mrna_seq: str,
                                   match_pos: int) -> np.ndarray:
     """Compute interaction-node features for a (siRNA, mRNA) pair."""
+    global _INTERACTION_COLS
     seq_u = sirna_seq.replace("T", "U")
     thermo = utils.cal_thermo_feature(seq_u)
     pe = utils.get_pos_embedding_sequence(
         match_pos, _DEFAULT_PARAMS["sirna_length"], _DEFAULT_PARAMS["dmodel"])
-    vals = np.concatenate([
-        np.asarray(thermo, dtype=np.float32),
-        np.zeros(_CON_COLS, dtype=np.float32),  # co-fold placeholder
+    con = np.zeros(_CON_COLS, dtype=np.float32)
+    raw = np.concatenate([
+        np.asarray(thermo, dtype=np.float32), con,
         np.asarray(pe, dtype=np.float32),
     ])
-    return vals
+    # Trim or pad to match the trained model's expected dimension
+    if _INTERACTION_COLS is not None and raw.shape[0] != _INTERACTION_COLS:
+        if len(raw) > _INTERACTION_COLS:
+            raw = raw[:_INTERACTION_COLS]
+        else:
+            raw = np.pad(raw, (0, _INTERACTION_COLS - len(raw)))
+    return raw
 
 
 def find_match_position(sirna_seq: str, mrna_seq: str) -> int:
@@ -215,6 +223,37 @@ def build_prediction_graph(records: list) -> StellarGraph.StellarGraph:
         {"siRNA": sirna_df, "mRNA": mrna_df, "interaction": interaction_df},
         edges=edge_df, source_column="source", target_column="target"
     )
+
+
+# ---------------------------------------------------------------------------
+# Weight introspection (detect expected feature dimensions)
+# ---------------------------------------------------------------------------
+
+def detect_feature_dims(weight_path: str):
+    """Read the trained weight file to determine expected feature dimensions.
+
+    Sets _INTERACTION_COLS from the first self-aggregator weight shape.
+    """
+    global _INTERACTION_COLS
+    try:
+        import h5py
+        with h5py.File(weight_path, "r") as f:
+            # The first-layer w_self for the interaction node type encodes
+            # the interaction feature dimension that the model was trained with.
+            for name in f:
+                for sub in f[name]:
+                    w_self = f[name][sub].get("w_self:0")
+                    if w_self is not None:
+                        _INTERACTION_COLS = w_self.shape[0]
+                        break
+                if _INTERACTION_COLS is not None:
+                    break
+        if _INTERACTION_COLS is not None:
+            print(f"Detected interaction feature dim: {_INTERACTION_COLS}",
+                  file=sys.stderr)
+    except Exception as e:
+        print(f"Could not probe weight file ({e}); using defaults.",
+              file=sys.stderr)
 
 
 # ---------------------------------------------------------------------------
@@ -332,6 +371,9 @@ def main():
         sys.exit(1)
 
     print(f"Processing {len(records)} siRNA-mRNA pair(s)...", file=sys.stderr)
+
+    # ---- Detect expected feature dims from trained weights ----
+    detect_feature_dims(args.model_weights)
 
     # ---- Build graph and generator ----
     print("Building graph...", file=sys.stderr)

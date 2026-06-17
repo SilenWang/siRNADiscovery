@@ -162,17 +162,23 @@ def build_prediction_graph(records: list) -> StellarGraph.StellarGraph:
 
 def detect_feature_dims(weight_path: str):
     global _INTERACTION_COLS
+    known_other = {1513, 39126, 64, 32, 16}
+    candidates = []
     try:
         import h5py
         with h5py.File(weight_path, "r") as f:
-            for name in f:
-                for sub in f[name]:
-                    w_self = f[name][sub].get("w_self:0")
-                    if w_self is not None:
-                        _INTERACTION_COLS = w_self.shape[0]
-                        break
-                if _INTERACTION_COLS is not None:
-                    break
+            def _visitor(path, obj):
+                if isinstance(obj, h5py.Dataset) and path.endswith("/w_self:0"):
+                    candidates.append(obj.shape[0])
+            f.visititems(_visitor)
+        print(f"All aggregator w_self dims found: {sorted(set(candidates))}",
+              file=sys.stderr)
+        for d in sorted(set(candidates)):
+            if d not in known_other:
+                _INTERACTION_COLS = d
+                break
+        if _INTERACTION_COLS is None and candidates:
+            _INTERACTION_COLS = candidates[0]
         if _INTERACTION_COLS is not None:
             print(f"Detected interaction feature dim: {_INTERACTION_COLS}",
                   file=sys.stderr)

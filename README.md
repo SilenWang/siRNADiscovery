@@ -20,6 +20,7 @@ For questions or further information, please contact the lead corresponding auth
     - [siRNA-mRNA Base-Pairing Probabilities](#sirna-mrna-base-pairing-probabilities)
   - [Dependencies](#dependencies)
   - [Running the Code](#running-the-code)
+  - [Prediction (Inference)](#prediction-inference)
 
 ## Overview
 
@@ -46,9 +47,13 @@ Ensure that you have the following installed to run the code smoothly:
 - Required Python packages (list of dependencies in `requirements.txt`)
 - ViennaRNA (for siRNA-mRNA base-pairing calculations)
 
-To install the required Python packages, run:
+To install the required Python packages:
 
 ```bash
+# Using pixi (recommended — see pixi.toml)
+pixi install
+
+# Or using pip
 pip install -r requirements.txt
 ```
 
@@ -56,8 +61,54 @@ pip install -r requirements.txt
 
 You can reproduce the results by executing the relevant scripts located in the `siRNA_split` and `mRNA_split` folders.
 
-To run the model, use the following command:
+```bash
+# Train the siRNA-split model (10-fold cross-validation)
+cd siRNA_split && python siRNADiscovery.py
+
+# Train the mRNA-split model
+cd mRNA_split && python siRNADiscovery.py
+```
+
+Both training scripts automatically save model weights after each fold to `saved_models/fold{N}_weights.h5`.
+
+## Prediction (Inference)
+
+After training, use the `predict.py` script in each split directory to make predictions on new siRNA-mRNA sequence pairs.
+
+### Input
+
+The model requires **both siRNA and mRNA sequences** — the HinSAGE graph neural network has three node types (siRNA, mRNA, interaction) and all are needed.
+
+Sequence features (one-hot, GC%, k-mers, thermodynamics, positional encoding, rules scores) are computed on the fly. External-tool-dependent features (RNAfold self-fold, RNAcofold co-fold, RPISeq AGO2 probabilities) are zero-filled by default; for best accuracy, precompute them and load via CSV.
+
+### Usage
 
 ```bash
-python siRNADiscovery.py
+# Single pair
+python siRNA_split/predict.py \
+  --sirna-seq UUGCUAGAGAGUUUGGUGUU \
+  --mrna-seq "CAGCAGUGGCAGUUCAGAUGCG..." \
+  --model-weights siRNA_split/saved_models/fold0_weights.h5
+
+# Batch prediction from CSV (columns: siRNA_seq, mRNA_seq)
+python siRNA_split/predict.py \
+  --csv input_pairs.csv \
+  --output predictions.csv \
+  --model-weights siRNA_split/saved_models/fold0_weights.h5
+
+# Ensemble prediction (average across all 10 folds)
+python siRNA_split/predict.py \
+  --csv input_pairs.csv \
+  --output ensemble_preds.csv \
+  --model-weights "siRNA_split/saved_models/fold*.h5"
+
+# Via stdin (one sirna_seq,mrna_seq per line)
+echo "UUGCU...,CAGCA..." | python siRNA_split/predict.py \
+  --model-weights siRNA_split/saved_models/fold0_weights.h5
+
+# mRNA-split model (same interface)
+python mRNA_split/predict.py \
+  --sirna-seq UUGCUAGAGAGUUUGGUGUU \
+  --mrna-seq "CAGCAG..." \
+  --model-weights mRNA_split/saved_models/fold0_weights.h5
 ```

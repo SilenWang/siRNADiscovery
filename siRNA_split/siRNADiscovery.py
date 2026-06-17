@@ -223,6 +223,10 @@ for n in range(10):
     # model fit
     history = model.fit(train_gen, epochs= params["epochs"], validation_data=dev_gen, verbose=2, shuffle=False)
 
+    # Save model weights for inference
+    os.makedirs("saved_models", exist_ok=True)
+    model.save_weights(f"saved_models/fold{n}_weights.h5")
+    print(f"Saved weights to saved_models/fold{n}_weights.h5")
 
     # Plot the training history
     history_plot = StellarGraph.utils.plot_history(history, return_figure=True)

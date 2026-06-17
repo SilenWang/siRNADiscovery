@@ -10,6 +10,12 @@ cuda = "12"
 [tasks]
 train-siRNA = { cmd = "python siRNADiscovery.py", cwd = "siRNA_split/" }
 train-mRNA = { cmd = "python siRNADiscovery.py", cwd = "mRNA_split/" }
+predict-siRNA = { cmd = "python predict.py --model-weights $MODEL_WEIGHTS --sirna-seq $SIRNA_SEQ --mrna-seq $MRNA_SEQ", cwd = "siRNA_split/" }
+predict-mRNA = { cmd = "python predict.py --model-weights $MODEL_WEIGHTS --sirna-seq $SIRNA_SEQ --mrna-seq $MRNA_SEQ", cwd = "mRNA_split/" }
+predict-siRNA-csv = { cmd = "python predict.py --model-weights $MODEL_WEIGHTS --csv $CSV --output $OUTPUT", cwd = "siRNA_split/", env = {OUTPUT = "predictions.csv"} }
+predict-mRNA-csv = { cmd = "python predict.py --model-weights $MODEL_WEIGHTS --csv $CSV --output $OUTPUT", cwd = "mRNA_split/", env = {OUTPUT = "predictions.csv"} }
+predict-siRNA-ensemble = { cmd = "python predict.py --model-weights 'saved_models/fold*.h5' --csv $CSV --output ${OUTPUT:-ensemble_preds.csv}", cwd = "siRNA_split/" }
+predict-mRNA-ensemble = { cmd = "python predict.py --model-weights 'saved_models/fold*.h5' --csv $CSV --output ${OUTPUT:-ensemble_preds.csv}", cwd = "mRNA_split/" }
 
 [dependencies]
 python = "3.11.*"

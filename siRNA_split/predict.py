@@ -30,7 +30,7 @@ Usage examples:
                     --mrna-seq CAGCAGUGGCAGUUCAGAUGCG... \\
                     --model-weights saved_models/fold0_weights.h5
 
-  # Batch from CSV (columns: sirna_seq, mrna_seq)
+  # Batch from CSV (columns: siRNA_seq, mRNA_seq)
   python predict.py --csv input.csv --output preds.csv \\
                     --model-weights saved_models/fold0_weights.h5
 
@@ -257,7 +257,7 @@ def parse_args(argv=None):
               %(prog)s --csv input_pairs.csv --output preds.csv \\
                         --model-weights fold0_weights.h5
 
-              # Interactive: one pair per line, CSV format (sirna_seq,mrna_seq)
+              # Interactive: one pair per line, CSV format (siRNA_seq,mRNA_seq)
               echo "UUGCU...,CAGCA..." | %(prog)s --model-weights fold0_weights.h5
         """),
     )
@@ -268,7 +268,7 @@ def parse_args(argv=None):
     io_group.add_argument("--mrna-seq", type=str, default=None,
                           help="mRNA sequence (DNA)")
     io_group.add_argument("--csv", type=str, default=None,
-                          help="Path to CSV with columns: sirna_seq,mrna_seq")
+                          help="Path to CSV with columns: siRNA_seq,mRNA_seq")
     io_group.add_argument("--output", type=str, default=None,
                           help="Path for output CSV (default: stdout)")
 
@@ -312,9 +312,9 @@ def main():
         for _, row in df_in.iterrows():
             records.append((
                 row.get("siRNA", f"siRNA_{_}"),
-                row["sirna_seq"],
+                row.get("siRNA_seq", row.get("sirna_seq")),
                 row.get("mRNA", f"mRNA_{_}"),
-                row["mrna_seq"],
+                row.get("mRNA_seq", row.get("mrna_seq")),
             ))
 
     if not records and not sys.stdin.isatty():
@@ -338,8 +338,7 @@ def main():
     g = build_prediction_graph(records)
 
     generator = HinSAGENodeGenerator(
-        g, batch_size=params["batch_size"],
-        hop_samples=params["hop_samples"],
+        g, params["batch_size"], params["hop_samples"],
         head_node_type="interaction",
     )
 
@@ -348,9 +347,7 @@ def main():
                        for idx in range(len(records))]
     # They were built the same way in build_prediction_graph; reconstruct
     # more robustly from the graph itself:
-    interaction_ids = [
-        n for n in g.nodes_of_type("interaction")
-    ]
+    interaction_ids = list(g.nodes(node_type="interaction"))
 
     # ---- Build model and load weights ----
     print("Building model...", file=sys.stderr)

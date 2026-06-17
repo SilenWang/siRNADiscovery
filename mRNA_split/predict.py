@@ -219,9 +219,9 @@ def main():
         for _, row in df_in.iterrows():
             records.append((
                 row.get("siRNA", f"siRNA_{_}"),
-                row["sirna_seq"],
+                row.get("siRNA_seq", row.get("sirna_seq")),
                 row.get("mRNA", f"mRNA_{_}"),
-                row["mrna_seq"],
+                row.get("mRNA_seq", row.get("mrna_seq")),
             ))
     if not records and not sys.stdin.isatty():
         for line in sys.stdin:
@@ -241,11 +241,10 @@ def main():
     g = build_prediction_graph(records)
 
     generator = HinSAGENodeGenerator(
-        g, batch_size=params["batch_size"],
-        hop_samples=params["hop_samples"],
+        g, params["batch_size"], params["hop_samples"],
         head_node_type="interaction",
     )
-    interaction_ids = list(g.nodes_of_type("interaction"))
+    interaction_ids = list(g.nodes(node_type="interaction"))
 
     print("Building model...", file=sys.stderr)
     model = build_inference_model(generator, params)

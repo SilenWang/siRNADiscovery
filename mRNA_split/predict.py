@@ -222,7 +222,8 @@ def parse_args(argv=None):
     io_group.add_argument("--output", type=str, default=None)
 
     model_group = parser.add_argument_group("Model")
-    model_group.add_argument("--model-weights", type=str, required=True)
+    model_group.add_argument("--model-weights", type=str, required=True,
+                             help="Path(s) to .h5 weights, comma-separated or glob")
     model_group.add_argument("--params", type=str, default=None)
 
     return parser.parse_args(argv)
@@ -269,25 +270,40 @@ def main():
         sys.exit(1)
 
     print(f"Processing {len(records)} siRNA-mRNA pair(s)...", file=sys.stderr)
-    detect_feature_dims(args.model_weights)
-    print("Building graph...", file=sys.stderr)
-    g = build_prediction_graph(records)
 
-    generator = HinSAGENodeGenerator(
-        g, params["batch_size"], params["hop_samples"],
-        head_node_type="interaction",
-    )
-    interaction_ids = list(g.nodes(node_type="interaction"))
+    if "," in args.model_weights and not any(
+        c in args.model_weights for c in "*?["
+    ):
+        weight_files = [p.strip() for p in args.model_weights.split(",")]
+    else:
+        import glob as _glob
+        weight_files = sorted(_glob.glob(args.model_weights))
+        if not weight_files:
+            weight_files = [args.model_weights]
+    print(f"Using {len(weight_files)} model(s): "
+          f"{[os.path.basename(w) for w in weight_files]}", file=sys.stderr)
 
-    print("Building model...", file=sys.stderr)
-    model = build_inference_model(generator, params)
-    model.load_weights(args.model_weights)
+    all_preds = []
+    for wf in weight_files:
+        detect_feature_dims(wf)
+        print(f"  Building graph for {os.path.basename(wf)}...", file=sys.stderr)
+        g = build_prediction_graph(records)
+        gen = HinSAGENodeGenerator(
+            g, params["batch_size"], params["hop_samples"],
+            head_node_type="interaction",
+        )
+        iids = list(g.nodes(node_type="interaction"))
+        dummy = pd.DataFrame(np.zeros((len(iids), 1)), index=iids)
+        model = build_inference_model(gen, params)
+        model.load_weights(wf)
+        preds = np.squeeze(model.predict(gen.flow(dummy.index, dummy), verbose=0))
+        all_preds.append(preds)
 
-    print("Predicting...", file=sys.stderr)
-    test_interaction = pd.DataFrame(
-        np.zeros((len(interaction_ids), 1)), index=interaction_ids)
-    test_gen = generator.flow(test_interaction.index, test_interaction)
-    preds = np.squeeze(model.predict(test_gen, verbose=0))
+    if len(all_preds) > 1:
+        preds = np.mean(all_preds, axis=0)
+        print(f"Ensembled {len(all_preds)} models via averaging", file=sys.stderr)
+    else:
+        preds = all_preds[0]
 
     results = pd.DataFrame({
         "siRNA": [r[0] for r in records],

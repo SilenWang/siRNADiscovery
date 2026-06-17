@@ -37,6 +37,14 @@ Usage examples:
   # Interactive one-shot (stdin CSV without header)
   echo "UUGCU...,CAGCA..." | python predict.py \\
       --model-weights saved_models/fold0_weights.h5
+
+  # Ensemble all 10 folds via glob
+  python predict.py --csv input.csv --output ens_preds.csv \\
+      --model-weights "saved_models/fold*.h5"
+
+  # Ensemble specific folds
+  python predict.py --csv input.csv \\
+      --model-weights "fold0.h5,fold1.h5,fold2.h5"
 """
 
 import argparse, json, os, sys, textwrap
@@ -318,11 +326,10 @@ def parse_args(argv=None):
 
     model_group = parser.add_argument_group("Model")
     model_group.add_argument("--model-weights", type=str, required=True,
-                             help="Path to trained .h5 weights file")
+                             help="Path(s) to .h5 weights, comma-separated or glob, e.g. "
+                                  "'saved_models/fold*.h5' or 'fold0.h5,fold1.h5'")
     model_group.add_argument("--params", type=str, default=None,
                              help="Path to siRNA_param.json (default: siRNA_param.json in same dir)")
-    model_group.add_argument("--fold", type=int, default=None,
-                             help="Fold index (0-9) used to select params if not specified")
 
     return parser.parse_args(argv)
 
@@ -377,40 +384,42 @@ def main():
 
     print(f"Processing {len(records)} siRNA-mRNA pair(s)...", file=sys.stderr)
 
-    # ---- Detect expected feature dims from trained weights ----
-    detect_feature_dims(args.model_weights)
+    # ---- Resolve weight files (comma-separated or glob) ----
+    if "," in args.model_weights and not any(
+        c in args.model_weights for c in "*?["
+    ):
+        weight_files = [p.strip() for p in args.model_weights.split(",")]
+    else:
+        import glob as _glob
+        weight_files = sorted(_glob.glob(args.model_weights))
+        if not weight_files:
+            weight_files = [args.model_weights]
+    print(f"Using {len(weight_files)} model(s): "
+          f"{[os.path.basename(w) for w in weight_files]}", file=sys.stderr)
 
-    # ---- Build graph and generator ----
-    print("Building graph...", file=sys.stderr)
-    g = build_prediction_graph(records)
+    # ---- Run prediction for each weight file ----
+    all_preds = []
+    for wf in weight_files:
+        detect_feature_dims(wf)
+        print(f"  Building graph for {os.path.basename(wf)}...", file=sys.stderr)
+        g = build_prediction_graph(records)
+        gen = HinSAGENodeGenerator(
+            g, params["batch_size"], params["hop_samples"],
+            head_node_type="interaction",
+        )
+        iids = list(g.nodes(node_type="interaction"))
+        dummy = pd.DataFrame(np.zeros((len(iids), 1)), index=iids)
+        model = build_inference_model(gen, params)
+        model.load_weights(wf)
+        preds = np.squeeze(model.predict(gen.flow(dummy.index, dummy), verbose=0))
+        all_preds.append(preds)
 
-    generator = HinSAGENodeGenerator(
-        g, params["batch_size"], params["hop_samples"],
-        head_node_type="interaction",
-    )
-
-    # The interaction node IDs in the graph
-    interaction_ids = [f"i{idx}_{_make_id(records[idx][0], idx)}_{_make_id(records[idx][2], idx)}"
-                       for idx in range(len(records))]
-    # They were built the same way in build_prediction_graph; reconstruct
-    # more robustly from the graph itself:
-    interaction_ids = list(g.nodes(node_type="interaction"))
-
-    # ---- Build model and load weights ----
-    print("Building model...", file=sys.stderr)
-    model = build_inference_model(generator, params)
-    model.load_weights(args.model_weights)
-    print(f"Loaded weights from {args.model_weights}", file=sys.stderr)
-
-    # ---- Predict ----
-    print("Predicting...", file=sys.stderr)
-    test_interaction = pd.DataFrame(
-        np.zeros((len(interaction_ids), 1)),
-        index=interaction_ids,
-    )
-    test_gen = generator.flow(test_interaction.index, test_interaction)
-    preds = model.predict(test_gen, verbose=0)
-    preds = np.squeeze(preds)
+    # ---- Ensemble (average across folds) ----
+    if len(all_preds) > 1:
+        preds = np.mean(all_preds, axis=0)
+        print(f"Ensembled {len(all_preds)} models via averaging", file=sys.stderr)
+    else:
+        preds = all_preds[0]
 
     # ---- Output ----
     results = pd.DataFrame({
@@ -418,7 +427,6 @@ def main():
         "mRNA": [r[2] for r in records],
         "predicted_efficacy": preds,
     })
-
     if args.output:
         results.to_csv(args.output, index=False)
         print(f"Predictions written to {args.output}", file=sys.stderr)
